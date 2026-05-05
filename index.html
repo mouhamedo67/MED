@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محمود - فحص ملفات IPA</title>
+    <!-- استدعاء مكتبة JSZip لفك الضغط في المتصفح -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        header {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: var(--primary);
+        }
+
+        .upload-container {
+            background-color: var(--card-bg);
+            width: 100%;
+            max-width: 400px;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            position: relative;
+            border: 2px dashed #cbd5e1;
+            transition: border-color 0.3s;
+        }
+
+        .upload-container:hover, .upload-container.dragover {
+            border-color: var(--primary);
+        }
+
+        .upload-container svg {
+            width: 64px;
+            height: 64px;
+            fill: var(--primary);
+            margin-bottom: 15px;
+        }
+
+        input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .status {
+            margin-top: 20px;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .results {
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+            list-style: none;
+        }
+
+        .results li {
+            background: var(--card-bg);
+            margin-bottom: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            word-break: break-all;
+            font-size: 0.85rem;
+        }
+
+        .results li.injected {
+            border-right: 4px solid var(--danger);
+        }
+        
+        .badge {
+            align-self: flex-start;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-top: 8px;
+            color: white;
+        }
+
+        .badge.danger { background-color: var(--danger); }
+        .loader { display: none; margin-top: 15px; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>محمود</h1>
+        <p>تحليل ملفات IPA واستخراج dylibs</p>
+    </header>
+
+    <div class="upload-container" id="drop-zone">
+        <!-- SVG Icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.36 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+        </svg>
+        <p>اضغط هنا لاختيار ملف .ipa</p>
+        <input type="file" id="ipa-input" accept=".ipa">
+        <div class="loader" id="loader">جاري تحليل الملف، يرجى الانتظار...</div>
+    </div>
+
+    <div class="status" id="status-text"></div>
+    <ul class="results" id="results-list"></ul>
+
+    <script>
+        const fileInput = document.getElementById('ipa-input');
+        const statusText = document.getElementById('status-text');
+        const resultsList = document.getElementById('results-list');
+        const loader = document.getElementById('loader');
+
+        fileInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // التحقق من الامتداد
+            if (!file.name.toLowerCase().endsWith('.ipa')) {
+                statusText.textContent = "خطأ: الملف ليس بصيغة ipa.";
+                statusText.style.color = "var(--danger)";
+                return;
+            }
+
+            statusText.textContent = `حجم الملف: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+            statusText.style.color = "var(--text)";
+            resultsList.innerHTML = '';
+            loader.style.display = 'block';
+
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                
+                JSZip.loadAsync(arrayBuffer).then(function(zip) {
+                    let dylibsFound = [];
+                    
+                    // البحث في محتويات الملف المضغوط
+                    zip.forEach(function (relativePath, zipEntry) {
+                        if (relativePath.toLowerCase().endsWith('.dylib')) {
+                            dylibsFound.push(relativePath);
+                        }
+                    });
+
+                    loader.style.display = 'none';
+
+                    if (dylibsFound.length === 0) {
+                        statusText.textContent += " - لم يتم العثور على مكتبات dylib.";
+                    } else {
+                        statusText.textContent += ` - تم العثور على ${dylibsFound.length} مكتبة.`;
+                        
+                        dylibsFound.forEach(path => {
+                            const li = document.createElement('li');
+                            li.className = 'injected';
+                            
+                            // استخراج اسم الملف فقط من المسار
+                            const fileName = path.split('/').pop();
+                            
+                            li.innerHTML = `
+                                <strong>${fileName}</strong>
+                                <span style="color: #64748b; margin-top: 4px; font-size: 0.75rem;">${path}</span>
+                                <span class="badge danger">مكتبة محقونة محتملة</span>
+                            `;
+                            resultsList.appendChild(li);
+                        });
+                    }
+
+                }).catch(function(err) {
+                    loader.style.display = 'none';
+                    statusText.textContent = "خطأ في قراءة الملف: حجم الملف قد يكون كبيراً جداً على المتصفح.";
+                    statusText.style.color = "var(--danger)";
+                });
+            };
+
+            reader.onerror = function() {
+                loader.style.display = 'none';
+                statusText.textContent = "فشل في تحميل الملف في الذاكرة.";
+                statusText.style.color = "var(--danger)";
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
